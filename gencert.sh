@@ -1,80 +1,35 @@
-#!/bin/bash
+#!/bin/sh
 
-# Bash shell script for generating self-signed certs. Run this in a folder, as it
-# generates a few files. Large portions of this script were taken from the
-# following artcile:
-# 
-# http://usrportage.de/archives/919-Batch-generating-SSL-certificates.html
-# 
-# Additional alterations by: Brad Landers
-# Date: 2012-01-27
-# Further alterations by: https://github.com/angelperezleon
-# Date: 21.11.2017
+# create self-signed server certificate:
 
-# Set permissions: chmod +x gencert.sh
-# Usage: gencert.sh <domain>
+read -p "Enter your domain [www.example.com]: " DOMAIN
 
-# Generate date - still to integrate!
-# like to add timestamp to generated cert files
-TIMESTAMP="$(date  +%d-%m-%Y-%H:%M:%S)"
+echo "Create server key..."
 
-# Script accepts a single argument, the fqdn for the cert
-DOMAIN="$1"
-if [ -z "$DOMAIN" ]; then
-  echo "Usage: $(basename $0) <domain>"
-  exit 11
-fi
+openssl genrsa -des3 -out $DOMAIN.key 1024
 
-fail_if_error() {
-  [ $1 != 0 ] && {
-    unset PASSPHRASE
-    exit 10
-  }
-}
+echo "Create server certificate signing request..."
 
-# Generate a passphrase
-export PASSPHRASE=$(head -c 500 /dev/urandom | tr -dc a-z0-9A-Z | head -c 128; echo)
+SUBJECT="/C=US/ST=Mars/L=iTranswarp/O=iTranswarp/OU=iTranswarp/CN=$DOMAIN"
 
-# Certificate details; replace items in angle brackets with your own info
-# Example: ST=<CITY> - ST=New York
-subj="
-C=<US>
-ST=<CITY>
-O=<CITY>
-localityName=<CITY>
-commonName=$DOMAIN
-organizationalUnitName=<DEPARTMENT>
-emailAddress=<YOUR@EMAIL.com>
-"
+openssl req -new -subj $SUBJECT -key $DOMAIN.key -out $DOMAIN.csr
 
-# Generate the server private key
-openssl genrsa -des3 -out $DOMAIN.key -passout env:PASSPHRASE 2048
-fail_if_error $?
+echo "Remove password..."
 
-# Generate the CSR
-openssl req \
-    -new \
-    -batch \
-    -subj "$(echo -n "$subj" | tr "\n" "/")" \
-    -key $DOMAIN.key \
-    -out $DOMAIN.csr \
-    -passin env:PASSPHRASE
-fail_if_error $?
-cp $DOMAIN.key $DOMAIN.key.org
-fail_if_error $?
+mv $DOMAIN.key $DOMAIN.origin.key
+openssl rsa -in $DOMAIN.origin.key -out $DOMAIN.key
 
-# Strip the password so we don't have to type it every time we restart Apache
-openssl rsa -in $DOMAIN.key.org -out $DOMAIN.key -passin env:PASSPHRASE
-fail_if_error $?
+echo "Sign SSL certificate..."
 
-# Generate the cert (good for 10 years)
-# openssl x509 -req -days 3650 -in $DOMAIN.csr -signkey $DOMAIN.key -out $DOMAIN.crt
 openssl x509 -req -days 3650 -in $DOMAIN.csr -signkey $DOMAIN.key -out $DOMAIN.crt
 
-# Generate p12 cert file to use for importing into IE/Mozilla
-# openssl pkcs12 -inkey key.pem -in cert.pem -export -out certificate.p12
-openssl pkcs12 -inkey $DOMAIN.key -in $DOMAIN.crt -export -out $DOMAIN.p12
-
-openssl pkcs12 -in $DOMAIN.p12 -noout -info
-
-fail_if_error $?
+echo "TODO:"
+echo "Copy $DOMAIN.crt to /etc/nginx/ssl/$DOMAIN.crt"
+echo "Copy $DOMAIN.key to /etc/nginx/ssl/$DOMAIN.key"
+echo "Add configuration in nginx:"
+echo "server {"
+echo "    ..."
+echo "    listen 443 ssl;"
+echo "    ssl_certificate     /etc/nginx/ssl/$DOMAIN.crt;"
+echo "    ssl_certificate_key /etc/nginx/ssl/$DOMAIN.key;"
+echo "}"
